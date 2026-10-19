@@ -1,6 +1,19 @@
 # Aftershock  
 ### ARIMA–GARCH Modeling of S&P 500 Volatility (2000–2024)
 
+<div align="center">
+
+[![Language: R](https://img.shields.io/badge/Language-R-276DC3?logo=r&logoColor=white)](https://www.r-project.org/)
+![Analysis: ARIMA–GARCH](https://img.shields.io/badge/Analysis-ARIMA%E2%80%93GARCH-497698)
+![Data: S&P 500](https://img.shields.io/badge/Data-S%26P%20500-334155)
+
+[![Tools: tidyverse](https://img.shields.io/badge/Tools-tidyverse-1A162D)](https://www.tidyverse.org/)
+![Forecasting: forecast](https://img.shields.io/badge/Forecasting-forecast-3B6B66)
+![Volatility: rugarch](https://img.shields.io/badge/Volatility-rugarch-337AB7)
+
+</div>
+
+
 ## Overview
 
 This project analyzes daily S&P 500 closing prices from 2000–2024 using classical financial time series methods.  
