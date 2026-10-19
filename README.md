@@ -1,7 +1,12 @@
-# Aftershock  
-### ARIMA–GARCH Modeling of S&P 500 Volatility (2000–2024)
-
 <div align="center">
+
+# Aftershock
+
+### Separating return dynamics from volatility persistence
+
+**ARIMA–GARCH analysis of daily S&P 500 prices and log returns.**
+
+[Read the report](reports/Aftershock.pdf) · [Explore the analysis](analysis/Aftershock.Rmd) · [Reproduce the study](#reproduce-the-study)
 
 [![Language: R](https://img.shields.io/badge/Language-R-276DC3?logo=r&logoColor=white)](https://www.r-project.org/)
 ![Analysis: ARIMA–GARCH](https://img.shields.io/badge/Analysis-ARIMA%E2%80%93GARCH-497698)
@@ -13,95 +18,100 @@
 
 </div>
 
+---
 
 ## Overview
 
-This project analyzes daily S&P 500 closing prices from 2000–2024 using classical financial time series methods.  
-The objective is to distinguish between predictable return structure and dynamic volatility evolution.
+Aftershock examines a distinction in financial time series: **weak dependence in returns can coexist with strong dependence in volatility**. The study transforms daily S&P 500 closing prices into log returns, evaluates stationarity and serial dependence, and fits an AR(1)–GARCH(1,1) model.
 
-The study applies:
+The source keeps observations from January 1, 2000 onward. The available local input ends on **November 4, 2020**, and contains **5,245 prices and 5,244 returns** after the date filter, matching the counts recorded in the report. The archived report's “2000–2024” labels are inconsistent with that input; this README uses the verified data coverage.
 
-- ARIMA modeling for conditional mean dynamics  
-- ARCH testing for volatility clustering  
-- GARCH(1,1) modeling for conditional heteroskedasticity  
-- Diagnostic testing for model adequacy and asymmetry  
+[Methods](#methods) · [Findings](#findings) · [Reproduction](#reproduce-the-study) · [Files](#repository-guide)
 
-This project demonstrates how statistical time series models capture key empirical properties of financial markets.
+## Methods
 
-## Research Questions
+| Stage | Tools | Analysis |
+|:---|:---|:---|
+| Preparation | `tidyverse`, base R | Sort dates, filter observations, calculate first differences of log prices |
+| Stationarity | `tseries::adf.test` | Test prices and returns for a unit root |
+| Mean dynamics | ACF/PACF, `forecast::auto.arima` | Examine serial dependence and select an ARIMA model |
+| ARCH effects | `FinTS::ArchTest` | Test conditional heteroskedasticity with 12 lags |
+| Conditional variance | `rugarch` | Fit symmetric GARCH(1,1), AR(1) mean, normal innovations |
+| Diagnostics | `rugarch` fit output | Residual dependence, remaining ARCH effects, stability, and sign bias |
 
-- Are daily S&P 500 returns predictable?
-- Does volatility cluster over time?
-- How persistent are volatility shocks?
-- Is volatility response symmetric to positive and negative shocks?
+```mermaid
+flowchart LR
+    A[Daily closing prices] --> B[Log returns]
+    A --> C[ADF test]
+    B --> D[ADF and ACF/PACF]
+    B --> E[ARIMA selection]
+    B --> F[ARCH test]
+    E --> G[AR1-GARCH11 fit]
+    F --> G
+    G --> H[Diagnostics and conditional volatility]
+```
 
+## Findings
 
-## Data
+The [existing report](reports/Aftershock.pdf) records:
 
-- Daily S&P 500 closing prices  
-- Sample period: January 1, 2000 – 2024  
-- Log returns computed using first differences of log prices  
+| Quantity | Recorded result |
+|:---|:---|
+| Mean-model selection | ARIMA(1,0,0) with zero mean |
+| Joint-model AR(1) coefficient | −0.056613 |
+| ARCH coefficient, α₁ | 0.119046 |
+| GARCH coefficient, β₁ | 0.865836 |
+| Volatility persistence, α₁ + β₁ | **0.984882** |
+| Joint sign-bias test p-value | Approximately 1.28 × 10⁻¹⁰ |
 
+The fitted variance process is highly persistent. The report's residual dependence and ARCH diagnostics suggest that the fitted model captures much of the remaining structure, while sign-bias results indicate that a symmetric variance model leaves asymmetry to investigate.
 
-## Methodology
+These are fitted-model results on the historical sample. The project does not include an out-of-sample forecast evaluation or a trading-strategy backtest.
 
-### 1. Stationarity Testing
-- Augmented Dickey–Fuller (ADF) tests applied to prices and returns
-- Prices found to be non-stationary
-- Returns confirmed stationary
+## Reproduce the study
 
-### 2. Mean Modeling
-- ACF and PACF diagnostics
-- `auto.arima()` model selection
-- ARIMA(1,0,0) with zero mean
+```sh
+git clone https://github.com/JimmyWu-312/Aftershock.git
+cd Aftershock
+```
 
-### 3. Volatility Modeling
-- ARCH LM test confirms conditional heteroskedasticity
-- GARCH(1,1) with AR(1) mean equation
-- Normal error distribution
+Place the original price CSV at `data/SPX.csv`. The file is not bundled; see the [data guide](data/README.md) for the expected fields and date coverage. Open R in the repository root:
 
-### 4. Model Diagnostics
-- Ljung–Box tests on residuals
-- Ljung–Box tests on squared residuals
-- ARCH LM post-estimation
-- Sign bias test for volatility asymmetry
+```r
+install.packages(c(
+  "rmarkdown", "tidyverse", "lubridate", "tseries", "knitr", "kableExtra",
+  "FinTS", "forecast", "rugarch"
+))
 
+rmarkdown::render(
+  "analysis/Aftershock.Rmd",
+  output_dir = "reports",
+  knit_root_dir = getwd()
+)
+```
 
-## Key Findings
+PDF rendering requires Pandoc and LaTeX. RStudio supplies Pandoc; TinyTeX is one LaTeX option. Package versions and optimizer behavior are not pinned, so a fresh fit may differ from the archived output.
 
-- Prices are non-stationary; returns are stationary.
-- Daily returns exhibit minimal economic predictability.
-- Strong volatility clustering is present.
-- Volatility persistence is high (α + β ≈ 0.985).
-- Evidence suggests asymmetric volatility responses.
+## Repository guide
 
-The results reinforce a core stylized fact of financial markets:
+```text
+Aftershock/
+├── analysis/Aftershock.Rmd # Data preparation, models, and diagnostic narrative
+├── data/README.md          # Input schema and verified date coverage
+├── reports/Aftershock.pdf  # Original rendered report
+└── README.md
+```
 
-> Returns are largely unpredictable in the mean, but volatility evolves dynamically and persistently over time.
+## Scope and interpretation
 
+- The code applies a lower date cutoff only. Supplying a newer CSV extends the fitted sample and changes the experiment.
+- Some numerical interpretations are hard-coded in the notebook narrative rather than extracted from fitted objects. If the data or fit changes, review those passages alongside the new outputs.
+- The symmetric GARCH model uses normal innovations. The significant sign-bias diagnostic motivates further model comparison; it is not evidence that an asymmetric model has already been fitted here.
+- Missing returns are omitted, but plotting dates are formed by dropping the first price date. Inputs with missing or nonpositive closing prices require additional alignment checks.
+- The local source is included with the input path adapted and a malformed inline R expression corrected. The published PDF is preserved, including its original labels and narrative.
 
-## Tools & Libraries
+## Author and references
 
-- R
-- tidyverse
-- forecast
-- tseries
-- FinTS
-- rugarch
-- lubridate
-- knitr
+**Jimmy Wu** · [GitHub](https://github.com/JimmyWu-312)
 
-
-## Financial Insight
-
-While return autocorrelation is weak (consistent with weak-form market efficiency), volatility demonstrates strong persistence and clustering, particularly during crisis periods such as 2008–2009 and 2020.
-
-The ARIMA–GARCH framework effectively separates mean unpredictability from time-varying risk dynamics.
-
-
-## References
-
-- Engle (1982) — ARCH
-- Bollerslev (1986) — GARCH
-- Campbell, Lo & MacKinlay (1997) — The Econometrics of Financial Markets
-- Box, Jenkins, Reinsel & Ljung (2015) — Time Series Analysis
+The [report](reports/Aftershock.pdf) cites Engle (1982), Bollerslev (1986), Campbell, Lo & MacKinlay (1997), and Box, Jenkins, Reinsel & Ljung (2015).

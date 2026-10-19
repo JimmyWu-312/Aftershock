@@ -1,0 +1,18 @@
+# R session and editor state
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+.DS_Store
+
+# Rendering intermediates
+*_cache/
+*_files/
+*.aux
+*.log
+*.out
+*.toc
+*.tex
+
+# Local input data (see data/README.md)
+data/*.csv

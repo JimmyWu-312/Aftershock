@@ -1,0 +1,191 @@
+---
+title: "Aftershock"
+author: "Jimmy Wu"
+date: "2026-02-16"
+output: pdf_document
+---
+
+```{r setup, message=FALSE, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(tseries)
+library(knitr)
+library(kableExtra)
+library(FinTS)
+library(forecast)
+library(rugarch)
+```
+
+
+# Introduction
+The *S&P 500* Index is one of the most widely followed equity benchmarks in the world, representing approximately 500 large-capitalization U.S. companies and serving as a key indicator of overall market performance. Because it reflects broad economic activity and investor sentiment, movements in the index are of central interest to economists, policymakers, and financial analysts. Financial time series such as the *S&P 500* are known to showcase distinctive statistical properties, including non-stationarity in prices, serial dependence in returns, and volatility clustering (Campbell, Lo, & MacKinlay, 1997).
+
+A fundamental challenge in financial time series analysis is distinguishing between predictable structure and stochastic noise. Classical models such as the Autoregressive Integrated Moving Average (ARIMA) framework are used to model serial dependence and to produce short-term forecasts (Box, Jenkins, Reinsel, & Ljung, 2015). However, financial return series often exhibit conditional heteroskedasticity, a phenomenon first formalized in the ARCH model by Engle (1982) and later generalized by Bollerslev (1986) in the GARCH framework. These models allow for pratical modeling of conditional variance, making them particularly suitable for financial data where risk evolves over time.
+
+This project applies ARIMA modeling to capture the conditional mean dynamics of *S&P* 500 log returns and employs a GARCH specification to analyze time-varying volatility. The analysis aims to assess the degree of return predictability and volatility persistence in daily market data. The results will contribute to understanding how statistical time series methods can be applied to real-world financial markets.
+
+
+# Method
+This study analyzes daily closing prices of the *S&P 500* Index from January 1, 2000 onward. The data were sorted chronologically and transformed into log returns using the first difference of the natural logarithm of prices. The log transformation converts multiplicative price changes into additive returns and facilitates modeling within a stationary framework.
+
+To assess stationarity, Augmented Dickey-Fuller (ADF) tests were applied to both the price series and the log return series. Based on these results, subsequent modeling focused on returns rather than prices. The conditional mean dynamics of returns were examined using the ARIMA framework. Autocorrelation and partial autocorrelation functions (ACF and PACF) were inspected, and the *auto.arima()* procedure was used to select an appropriate specification based on information criteria.
+
+To evaluate conditional heteroskedasticity, the autocorrelation function of squared returns was analyzed and an ARCH LM test was conducted. Given evidence of volatility clustering, a GARCH(1,1) model with an AR(1) mean equation was estimated under a normal error distribution. Model adequacy was assessed using Ljung-Box tests on standardized residuals and squared residuals, ARCH LM diagnostics, and stability tests. A sign bias test was additionally performed to evaluate potential asymmetry in volatility responses.
+
+This modeling strategy allows separate examination of mean dynamics and conditional variance dynamics, providing a structured framework for analyzing return predictability and volatility persistence.
+
+
+# Result
+## Data Exploration
+```{r, cache=TRUE}
+sp500 <- read.csv("data/SPX.csv")
+
+sp500$Date <- as.Date(sp500$Date)
+sp500 <- sp500 %>% arrange(Date)
+
+sp500_recent <- sp500 %>%
+  filter(Date >= as.Date("2000-01-01"))
+
+price <- sp500_recent$Close
+
+# Create log returns
+returns <- diff(log(price))
+returns <- na.omit(returns)
+```
+The dataset contains old data from the past century. For the purpose of simplicity, we extract only the data after the beginning of the 21st century, which is on and after January 1, 2000.
+
+We then apply log transformation to the *price* data and obtain log returns. This transformation converts multiplicative price changes into additive returns, linearizing the growth process and allowing the time series model to approximate simple percentage returns when changes are small and possess desirable statistical properties, such as time additivity.
+
+After omitting missing values, we obtained `r length(price)` price values and `r length(returns)` log return values.
+
+```{r, cache=TRUE, fig.show='hold', out.width='50%'}
+plot(sp500_recent$Date, price,
+     type = "l",
+     main = "S&P 500 Closing Prices (2000–2024)",
+     xlab = "Date",
+     ylab = "Price",
+     col = "black")
+
+plot(sp500_recent$Date[-1], returns,
+     type = "l",
+     main = "S&P 500 Log Returns (2000–2024)",
+     xlab = "Date",
+     ylab = "Log Return",
+     col = "black")
+```
+The price series exhibits a long-term upward trend, particularly after 2009, indicating strong non-stationary behavior. Major downturns are visible around the 2000 to 2002 dot-com collapse, the 2008 financial crisis, and the 2020 COVID-19 shock. The presence of trend and structural shifts suggests that the price series likely contains a unit root and is inappropriate for direct ARIMA modeling without transformation.
+
+In contrast, the log return series fluctuates around zero with no visible deterministic trend, suggesting stationarity in the mean. However, the variability of returns is clearly time-varying. Periods such as 2008 to 2009 and 2020 show substantially larger fluctuations compared to calmer market periods, indicating volatility clustering. This visual evidence suggests the presence of conditional heteroskedasticity, motivating the use of GARCH modeling for the conditional variance.
+
+## Stationarity Testing
+```{r, warning=FALSE}
+# ADF test on price
+adf_price <- adf.test(price)
+adf_price
+
+# ADF test on returns
+adf_returns <- adf.test(returns)
+adf_returns
+```
+To formally assess stationarity, the Augmented Dickey–Fuller (ADF) test was applied to both the price series and the log return series. The ADF test for the price series produced a test statistic of `r signif(adf_price$statistic, 4)` with a p-value of `r signif(adf_price$p.value, 4)`. Since the p-value is substantially larger than conventional significance levels (e.g., 0.05), we fail to reject the null hypothesis of a unit root. This indicates that the price series is non-stationary and likely follows an integrated process, consistent with standard financial theory.
+
+In contrast, the ADF test for the log return series yielded a test statistic of `r signif(adf_returns$statistic, 4)` with a p-value of `r signif(adf_returns$p.value, 4)`. This rejects the null hypothesis of a unit root, indicating that the return series is stationary. This result justifies modeling returns rather than prices within the ARIMA framework and aligns with established empirical evidence that equity prices are typically integrated of order one, while returns are stationary (Campbell, Lo, & MacKinlay, 1997).
+
+## ACF/PACF of Returns
+```{r, cache=TRUE, fig.show='hold', out.width='50%'}
+acf(returns, main = "ACF of S&P 500 Returns")
+pacf(returns, main = "PACF of S&P 500 Returns")
+```
+The ACF of the return series shows that nearly all autocorrelation coefficients beyond lag 0 lie within the 95% confidence bounds. There are no persistent or slowly decaying correlations, and any significant spikes are small and isolated. This indicates that daily *S&P 500* returns exhibit little to no linear serial dependence.
+
+Similarly, the PACF does not display a clear cutoff pattern indicative of a strong autoregressive structure. While a few lags slightly exceed the confidence bounds at around lag 1, 15, and 34, there is no systematic pattern or significant partial autocorrelation. The return series appears approximately white noise in the mean.
+
+This result is consistent with the weak-form Efficient Market Hypothesis, which suggests that past returns contain little predictive power for future returns (Campbell, Lo, & MacKinlay, 1997). However, absence of mean autocorrelation does not exclude the presence of conditional heteroskedasticity, which will be investigated next.
+
+## Test for ARCH Effects
+```{r}
+# ACF of squared returns
+acf(returns^2, main = "ACF of Squared Returns")
+```
+
+The ACF of the squared return series exhibits strong and persistent positive autocorrelation across many lags. Unlike the raw return series, whose autocorrelations were mostly insignificant, the squared returns display a slow decay pattern that remains well above the 95\% confidence bounds for numerous lags. This indicates that while returns themselves are approximately uncorrelated, their variance is serially dependent.
+
+```{r}
+ArchTest <- ArchTest(returns, lags = 12)
+```
+To formally test for ARCH effects, the ARCH LM test was conducted with 12 lags. The test produced a chi-square statistic of `r signif(ArchTest$statistic, 4)` with 12 degrees of freedom and a p-value that is effectively zero. Thus, we reject the null hypothesis of no ARCH effects. This provides statistical evidence of conditional heteroskedasticity in the return series.
+
+## GARCH
+Even though mean autocorrelation is weak, we should formally specify a mean model before fitting GARCH.
+```{r}
+auto.arima(returns)
+```
+The automatic model selection procedure using auto.arima(returns) selected an ARIMA(1,0,0) model with zero mean, which corresponds to an AR(1) specification for the return series. The estimated autoregressive coefficient is `r signif(-0.1140, 4)` with a standard error of `r signif(0.0137, 4)`. Since the ratio of the estimate to its standard error is large in magnitude, the coefficient is statistically significant at conventional levels. This indicates that there exists a small but statistically detectable first-order serial dependence in daily *S&P 500* returns.
+
+Despite its statistical significance, the magnitude of the coefficient, `r signif(-0.1140, 4)`, is economically small. The negative sign suggests mild short-term mean reversion, meaning that a positive return is slightly more likely to be followed by a negative return, and vice versa. However, the effect size is limited, implying that daily returns remain largely unpredictable in practice. This finding is consistent with the weak-form Efficient Market Hypothesis, which posits that past returns contain little information for forecasting future returns.
+
+The estimated innovation variance is `r signif(0.0001563, 4)`, and the model achieves a log-likelihood of `r signif(15538.07, 6)` with an AIC value of `r signif(-31072.14, 6)`. These metrics provide a benchmark for subsequent modeling steps. Given the weak mean dynamics observed, it is expected that the primary structure of the series lies not in the conditional mean but in the conditional variance, which motivates the use of GARCH modeling in the next stage of the analysis.
+
+### GARCH Model Fit and Estimation
+```{r}
+spec <- ugarchspec(
+  mean.model = list(armaOrder = c(1,0), include.mean = FALSE),
+  variance.model = list(model = "sGARCH", garchOrder = c(1,1)),
+  distribution.model = "norm"
+)
+
+garch_fit <- ugarchfit(spec = spec, data = returns)
+
+show(garch_fit)
+```
+
+To model conditional heteroskedasticity, a GARCH(1,1) specification with an AR(1) mean equation was estimated under a normal error distribution. The estimated AR(1) coefficient in the joint model is `r signif(-0.056613, 4)` with a p-value of `r signif(0.000153, 4)`, indicating that the mild negative serial dependence observed earlier remains statistically significant after accounting for time-varying volatility.
+
+The variance equation parameters are all statistically significant. The estimated constant term is `r signif(0.000002, 4)`, the ARCH parameter is `r signif(0.119046, 4)`, and the GARCH parameter is `r signif(0.865836, 4)`. Both alpha1 and beta1 are highly significant with p-values effectively equal to zero. The log-likelihood of the model is `r signif(16907.29, 6)`.
+
+A key quantity of interest in GARCH modeling is the persistence parameter, given by $\alpha_1 + \beta_1 =$ `r signif(0.119046+0.865836,4)`, which equals approximately `r signif(0.984882, 4)`. Since this value is very close to 1 but still less than 1, the conditional variance process is highly persistent yet covariance-stationary. This implies that volatility shocks decay slowly over time, a characteristic feature of financial markets.
+
+### Diagnostics
+The weighted Ljung–Box tests on standardized residuals yield p-values of `r signif(0.6418, 4)`, `r signif(0.9547, 4)`, and `r signif(0.7585, 4)` across reported lags, indicating no remaining serial correlation in the mean equation. Similarly, the Ljung-Box tests on squared standardized residuals produce p-values above 0.20, suggesting that the GARCH(1,1) specification successfully captures the conditional heteroskedasticity present in the data.
+
+The weighted ARCH LM tests further confirm this result, with all reported p-values exceeding 0.50, indicating no remaining ARCH effects after model fitting. These diagnostics collectively suggest that the GARCH(1,1) model adequately captures both the mean and volatility dynamics of the *S&P 500* return series.
+
+Although the symmetric GARCH(1,1) model captures volatility clustering effectively, the sign bias test suggests potential asymmetry in the volatility response. The sign bias statistic is `r signif(4.385, 4)` with a p-value of `r signif(1.184e-05, 4)`, indicating statistically significant sign bias. The positive sign bias component also shows significance with a p-value of `r signif(2.039e-02, 4)`, while the negative sign bias component is not statistically significant at conventional levels.
+
+The joint effect test yields a statistic of `r signif(49.042, 4)` with a p-value of `r signif(1.278e-10, 4)`, rejecting the null hypothesis of symmetry in the volatility response. These results indicate that positive and negative shocks may affect volatility differently, a phenomenon often associated with leverage effects in financial markets.
+
+### Conditional Volatility
+```{r}
+cond_vol <- sigma(garch_fit)
+dates_returns <- sp500_recent$Date[-1]
+
+plot(dates_returns, cond_vol,
+     type = "l",
+     main = "Estimated Conditional Volatility (GARCH(1,1))",
+     xlab = "Date",
+     ylab = expression(sigma[t]),
+     col = "black")
+```
+The estimated conditional volatility series further illustrates the persistence and clustering behavior identified in the statistical tests. The GARCH(1,1) volatility estimates display pronounced spikes during periods of financial stress, most notably around the 2008–2009 global financial crisis and the 2020 COVID-19 shock. These episodes correspond to the large return fluctuations observed earlier and are consistent with the strong ARCH effects detected in the LM test. More importantly, volatility does not immediately revert to its long-run level after a shock; instead, it decays gradually, reflecting the high persistence parameter $\alpha_1 + \beta_1 =$ `r signif(0.119046+0.865836,4)`. The conditional volatility plot confirms that while returns themselves exhibit little predictable structure in the mean, their variance evolves dynamically over time.
+
+
+# Discussion
+This project analyzed daily *S&P 500* data from 2000 to 2024 using ARIMA and GARCH models to distinguish between mean dynamics and volatility dynamics. The results confirm several well-known empirical properties of financial time series.
+
+To begin with, prices were found to be non-stationary, while log returns were stationary. This justifies modeling returns rather than prices and aligns with standard financial theory. The ARIMA results indicated a statistically significant AR(1) component; however, the magnitude of the coefficient was economically small. This suggests that although mild short-term mean reversion exists, most part of daily returns are unpredictable in practice.
+
+In contrast to the weak mean dependence, strong dependence was observed in the conditional variance. The ACF of squared returns and the ARCH LM test provided clear evidence of volatility clustering. The estimated GARCH(1,1) model successfully captured this behavior. Both ARCH and GARCH parameters were highly significant, and their sum was close to one, indicating strong volatility persistence. Shocks to volatility decay slowly over time rather than reverting immediately to long-run levels.
+
+Diagnostic tests suggested that the GARCH(1,1) specification adequately modeled both the mean and variance processes. Standardized residual tests showed no remaining serial correlation or ARCH effects. The conditional volatility plot further illustrated clustering, with pronounced spikes during major crisis periods such as 2008–2009 and 2020. The sign bias test indicated some asymmetry in the volatility response, suggesting that positive and negative shocks may affect volatility differently. However, for the scope of this project, the symmetric GARCH(1,1) model provides a reasonable and interpretable representation of market volatility dynamics.
+
+The findings showcase a key feature of financial markets: while returns themselves exhibit limited predictability, volatility evolves dynamically and persistently over time. The ARIMA–GARCH framework captures this distinction between mean unpredictability and time-varying risk.
+
+
+# References
+Box, G. E. P., Jenkins, G. M., Reinsel, G. C., & Ljung, G. M. (2015). *Time Series Analysis: Forecasting and Control (5th ed.)*. Wiley.
+
+Bollerslev, T. (1986). *Generalized autoregressive conditional heteroskedasticity*. Journal of Econometrics, 31(3), 307–327.
+
+Campbell, J. Y., Lo, A. W., & MacKinlay, A. C. (1997). *The Econometrics of Financial Markets*. Princeton University Press.
+
+Engle, R. F. (1982). *Autoregressive conditional heteroskedasticity with estimates of the variance of United Kingdom inflation*. Econometrica, 50(4), 987–1007.
